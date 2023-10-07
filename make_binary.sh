@@ -1,1 +1,1 @@
-pyinstaller --onefile --add-data default.jpg:default.jpg maker.py
+pyinstaller --onefile --noconsole --icon=icon.ico --add-data "icon.ico;." maker.py
