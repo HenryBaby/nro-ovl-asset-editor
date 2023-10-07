@@ -123,10 +123,8 @@ class Editor(QWidget):
         self.author = QLineEdit("Author")
         self.version = QLineEdit("Version")
 
-        # Create a default QPixmap with the default image
         self.default_pixmap = QPixmap("default.jpg")
 
-        # Initialize the icon_label with the default image
         self.icon_label = QLabel(self)
         self.icon_label.setPixmap(self.default_pixmap)
         self.icon_label.setFixedSize(256, 256)
@@ -137,7 +135,6 @@ class Editor(QWidget):
 
         self.init_ui()
 
-        # Initialize the flag to track changes
         self.has_changes = False
 
     def init_ui(self):
@@ -161,7 +158,6 @@ class Editor(QWidget):
         self.save_button = QPushButton("Save")
         self.save_button.clicked.connect(self.save_file)
 
-        # Disable the save button initially
         self.save_button.setEnabled(False)
 
         layout.addWidget(self.save_button, 3, 1)
@@ -179,7 +175,6 @@ class Editor(QWidget):
         self.version.setEnabled(False)
 
     def on_field_changed(self):
-        # Enable the save button when changes are made
         self.has_changes = True
         self.save_button.setEnabled(True)
 
@@ -234,7 +229,6 @@ class Editor(QWidget):
             self.save_button.setEnabled(False)
 
     def browse(self):
-        # Add the following line to reset the has_changes flag when loading a file
         self.has_changes = False
 
         self.filename, _ = QFileDialog.getOpenFileName(
@@ -242,9 +236,8 @@ class Editor(QWidget):
         )
 
         if self.filename:
-            if self.filename.endswith(".nro"):  # Check if it's an .NRO file
+            if self.filename.endswith(".nro"):
                 self.enable_browse_image_button()
-                # Rest of your code
             else:
                 self.disable_browse_image_button()
 
@@ -289,7 +282,6 @@ class Editor(QWidget):
                 self.version.setEnabled(True)
                 self.save_button.setEnabled(False)
 
-    # Inside the Editor class, add the browse_image method
     def browse_image(self):
         image_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -302,13 +294,10 @@ class Editor(QWidget):
             pixmap = QPixmap(image_path)
             self.icon_label.setPixmap(pixmap)
             self.icon_label.setFixedSize(256, 256)
-            self.new_image_selected = (
-                True  # Set a flag to indicate a new image is selected
-            )
+            self.new_image_selected = True
 
-        # Set the flag to indicate a new image is selected
         self.new_image_selected = True
-        self.on_field_changed()  # Trigger the change event
+        self.on_field_changed()
 
 
 class MainWindow(QMainWindow):
@@ -326,12 +315,10 @@ class MainWindow(QMainWindow):
         self.editor = Editor()
         self.setCentralWidget(self.editor)
 
-        # Adjust the width of the main window based on widget sizes
         main_window_width = self.editor.sizeHint().width()
         main_window_height = 430  # Set the desired height
         self.setGeometry(100, 100, main_window_width, main_window_height)
 
-        # Set the fixed size of the main window
         self.setFixedSize(self.size())
 
 
