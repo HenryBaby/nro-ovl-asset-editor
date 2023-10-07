@@ -4,10 +4,5 @@ I needed a way to edit assets inside of .ovl files aswell as .nro files, because
 
 I decided to move from tkinter, because I could. In any case, like I stated. Any and all credit goes towards the dev of the original tool. I don't know what's customary when it comes to stuff like this, original LICENSE is provided.
 
-## nro-asset-editor
-Edit asset data in Switch homebrew .nro files according to the Assets layout described on [switchbrew](http://switchbrew.org/index.php?title=NRO#Assets).
-
-Using this program it should be possible to add/change icons and metadata for any hbmenu homebrew apps. It can be downloaded from the [release page](https://github.com/vgmoose/nro-asset-editor/releases).
-
 ### GUI
 To run the GUI, either run the precompiled binary from the release page, or run `maker.py` without any additional arguments.
