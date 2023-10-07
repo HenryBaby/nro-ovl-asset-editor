@@ -1,2 +1,2 @@
-Pillow
-tk
+PyQt6==6.5.2
+PyQt6_sip==13.4.1
