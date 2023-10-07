@@ -1,390 +1,346 @@
-#!/bin/python3
-import io, sys, os
-from collections import defaultdict
+import os
+import sys
 
-defaultPath = "default.jpg"
+from PyQt6.QtCore import QTimer, QByteArray, QBuffer, QIODevice
+from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QLineEdit,
+    QPushButton,
+    QFileDialog,
+    QGridLayout,
+    QLabel,
+)
 
-print("NRO Asset Editor v1.2")
-config = defaultdict(None)
-sys.argv += [ None ] * 2
 
-try:
-	from PIL import Image
-	hasPIL = True
-except:
-	hasPIL = False
-	print("[WARNING] No Python Image Library installed, cannot use --icon! To resolve, try: pip3 install Pillow")
+# Constants
+NACP_NAME_SIZE = 0x200
+NACP_AUTHOR_SIZE = 0x100
+NACP_VERSION_SIZE = 0x10
 
-hasGUI = False
-for x in range(1, len(sys.argv), 2):
-	arg = sys.argv[x]
-	if arg and arg[2:] in [ "title", "author", "version", "icon", "nro" ]:
-		config[arg[2:]] = sys.argv[x + 1]
-
-if len(config) == 0:
-	print("usage:\n\tpython3 maker.py [--nro /path/to/file.nro] [--title \"Your App Title\"] [--icon /path/to/icon.(png|jpg)] [--author \"Your Author\"] [--version x.x.x]")
-	print("\tNo valid arguments specified, going to run GUI!")
-	hasGUI = True
-else:
-	print("Entering command line mode! To start the GUI don't provide any args.")
-
-if hasGUI:
-	try:
-		import tkinter as tk
-		from tkinter import filedialog
-		from PIL import ImageTk
-	except:
-		print("[ERROR] TKinter not installed! Cannot display GUI. You can still use the command-line mode by specifying arguments.")
-		exit(1)
-
-try:
-	defaultPath = sys._MEIPASS + os.path.sep + defaultPath + os.path.sep + defaultPath
-except:
-	pass
 
 class Asset:
-	def __init__(self, offset):
-		# initialize icon, nacp, and romfs
-		self.nacp = bytearray([])
-		self.icon = bytearray([])
-		self.romfs = bytearray([])
-
-		# offset is the total size of the .nro excluding these asset section
-		self.offset = offset
-
-	# load this asset object with data from a bunch of bytes
-	# at the end of a .nro file (after the nro.size)
-	def load(self, data):
-		# get icon data
-		offset = 0x4 + 0x4
-
-		icon_pos = int.from_bytes(data[offset:offset+0x8], "little")
-		icon_size = int.from_bytes(data[offset+0x8:offset+0x10], "little")
-		self.icon += data[icon_pos:icon_pos+icon_size]
-		offset += 0x10
-
-		nacp_pos = int.from_bytes(data[offset:offset+0x8], "little")
-		nacp_size = int.from_bytes(data[offset+0x8:offset+0x10], "little")
-		self.nacp += data[nacp_pos:nacp_pos+nacp_size]
-		offset += 0x10
-
-		romfs_pos = int.from_bytes(data[offset:offset+0x8], "little")
-		romfs_size = int.from_bytes(data[offset+0x8:offset+0x10], "little")
-		self.romfs += data[romfs_pos:romfs_pos+romfs_size]
-		offset += 0x10
-
-		# we need to load human readable strings out of the nacp
-		self.name    = self.nacp[0:0x200].decode("utf-8").strip("\x00")
-		self.author =  self.nacp[0x200:0x300].decode("utf-8").strip("\x00")
-		self.version = self.nacp[0x3060:0x3070].decode("utf-8").strip("\x00")
-
-	def updateNACP(self, editor, config):
-
-		if hasGUI:
-			my_name = editor.name.get()
-			my_author = editor.author.get()
-			my_version = editor.version.get()
-		else:
-			my_name = config["title"]
-			my_author = config["author"]
-			my_version = config["version"]
-
-		# NACP should have size 0x4000, extend the byte array if this is not already true
-		if len(self.nacp) < 0x4000:
-			self.nacp += bytearray([0]*(0x4000 - len(self.nacp)))
-
-		# TODO: fill out some more fields? http://switchbrew.org/index.php?title=Control.
-		# we're only going to fill out name, author, and version using as much
-		# existing information as possible
-
-		# 15 languages (app name + author)
-		for x in range(15):
-			app_name = bytearray(my_name, encoding="utf-8")			# get user-input string
-			app_name += bytearray([0]*(0x200 - len(app_name)))		# pad 0s until 0x200
-			self.nacp[x*0x300:(x*0x300+0x200)] = app_name			# insert into nacp
-
-			author = bytearray(my_author, encoding="utf-8")			# get user-input string
-			author += bytearray([0]*(0x100 - len(author)))			# pad 0s until 0x100
-			self.nacp[x*0x300+0x200:(x*0x300+0x300)] = author		# insert into nacp
-
-		# version
-		version = bytearray(my_version, encoding="utf-8")
-		version += bytearray([0]*(0x10 - len(version)))
-		self.nacp[0x3060:0x3060+0x10] = version
-
-	# return the bytes that makeup this object, based on the fields
-	def getBytes(self):
-		# asset header magic
-		ret = b"ASET"
-		ret += bytearray([0, 0, 0, 0])
-
-		# total size of asset header
-		offset = 0x38
-
-		# first asset section, icon
-		icon_size = len(self.icon)
-
-		if icon_size > 0:
-			ret += (offset).to_bytes(8, "little")
-			ret += (icon_size).to_bytes(8, "little")
-		else:
-			ret += bytearray([0]*0x10)
-		offset += icon_size
-
-		# 2nd asset section, nacp metadata
-		nacp_size = len(self.nacp)
-
-		if nacp_size > 0:
-			ret += (offset).to_bytes(8, "little")
-			ret += (nacp_size).to_bytes(8, "little")
-		else:
-			ret += bytearray([0]*0x10)
-		offset += nacp_size
-
-		# 3rd asset section, romfs
-		romfs_size = len(self.romfs)
-
-		if romfs_size > 0:
-			ret += (offset).to_bytes(8, "little")
-			ret += (romfs_size).to_bytes(8, "little")
-		else:
-			ret += bytearray([0]*0x10)
-		offset += romfs_size
-
-		# write data bytes
-		ret += self.icon
-		ret += self.nacp
-		ret += self.romfs
-
-		# all done
-		return ret
-
-class Editor:
-	def __init__(self, elems=[]):
-		self.filename = None
-		self.elements = elems
-
-		if hasGUI:
-			self.name = tk.StringVar()
-			self.name.set("Untitled Homebrew")
-			self.author = tk.StringVar()
-			self.author.set("Unknown Author")
-			self.version = tk.StringVar()
-			self.version.set("0.0.0")
-
-		self.image = None
-		self.data = None
-		self.nrosize = 0
-	
-	def loadImageData(self, img_url):
-		self.image = Image.open(img_url).convert("RGB")
-		self.image = self.image.resize((256, 256), Image.ANTIALIAS)
-
-		buffer = io.BytesIO()
-		# if it's not already a jpeg, convert it into one
-		if self.image.format != "JPEG":
-			self.image.save(buffer, format="JPEG")
-			self.image = Image.open(buffer)
-
-	# prompt for an image file
-	def browse_image(self):
-		# load either the new image or the default one
-		img_url = filedialog.askopenfilename(title = "Select image file",filetypes = (("PNG Files","*.png"),("JPG Files","*.jpg"),("JPEG Files","*.jpeg"), ("GIF Files","*.gif"), ("BMP Files","*.bmp"), ("TGA Files","*.tga"), ("All Files","*.*"))) or defaultPath
-
-		loadImageData(img_url)
-
-		image2 = ImageTk.PhotoImage(self.image)
-		self.imagebox.configure(image=image2)
-		self.imagebox.image = image2
-
-	# update the current NRO with the new asset data
-	def saveNRO(self, config={}):
-
-		# update any of our asset header values based on what's
-		# been typed in the entry boxes, or the new icon
-
-		# icon, read out currently displayed jpeg to bytes
-		# quality=keep is needed so it doesn't re-jpeg-ify
-		if hasPIL:
-			buffer = io.BytesIO()
-			self.image.save(buffer, format="JPEG", quality="keep")
-			self.asset.icon = bytearray(buffer.getvalue())
-
-		# metadata, get currently displayed values and isnert
-		# them into every language
-		self.asset.updateNACP(self, config)
-
-		# get the asset bytes so we can verify they're there first
-		assetbytes = self.asset.getBytes()
-
-		if assetbytes:
-			with open(self.filename, "wb") as nro:
-				nro.write(self.data)
-				nro.write(assetbytes)
-				nro.flush()
-		else:
-			# failed
-			return False
-
-		return True
-
-	def loadBinaryData(self):
-		# load out some info
-		with open(self.filename, "rb") as binary:
-			self.data = binary.read()
-			data = self.data
-
-			# verify NRO0 format
-			if data[0x10:0x14] != b"NRO0":
-				return False
-
-			# get the filesize, so we can go to the assets section
-			self.nrosize = int.from_bytes(data[0x18:0x1C], byteorder="little")
-			size = self.nrosize
-
-			# check for ASET data
-			self.asset = Asset(size)
-			asset = self.asset
-
-			if len(data) > size+4 and data[size:size+0x4] == B"ASET":
-				# load the asset data
-				self.asset.load(bytearray(data[size:]))
-
-				if hasPIL:
-					self.image = Image.open(io.BytesIO(asset.icon))
-
-				# truncate the old assset data from memory
-				self.data = data[:size]
-
-	# prompt for a file browser to select a .NRO file to extract data from
-	def browse(self):
-		self.filename = filedialog.askopenfilename(title = "Select NRO",filetypes = (("NRO Files","*.nro"),("All Files","*.*"))) or self.filename
-
-		self.loadBinaryData()
-
-		self.name.set(asset.name)
-		self.author.set(asset.author)
-		self.version.set(asset.version)
-		
-		image2 = ImageTk.PhotoImage(self.image)
-		self.imagebox.configure(image=image2)
-		self.imagebox.image = image2
-
-
-		if self.filename:
-			# enable all buttons and fields
-			self.elements[0].configure(state = "active")
-			for elem in self.elements[1:]:
-				elem.configure(state = "normal")
-
-
-if hasGUI:
-	root = tk.Tk()
-	root.title("NRO Asset Editor")
-
-	# batch of UI input elements
-	elems = []
-	editor = Editor(elems)
-
-	# frame containing load and save buttons
-	fileframe = tk.Frame(root)
-	fileframe.grid(row=0, column=2, columnspan=1)
-
-	tk.Button(fileframe, text="Load NRO...", command=editor.browse).grid(row=0, column=0)
-	saveb = tk.Button(fileframe, text="Save", state="disabled", command=editor.saveNRO)
-	saveb.grid(row=0, column=1)
-	elems.append(saveb)
-
-	frame = tk.Frame(root)
-	frame.grid(row=3, column=2, columnspan=2)
-
-	# main text entry boxes (disabled by default)
-	tk.Label(frame, text="App Name").grid(row=0, column=0, padx=5)
-	t1 = tk.Entry(frame, state="disabled", textvariable=editor.name)
-	t1.grid(row=0, column=1, padx=5)
-	elems.append(t1)
-
-	tk.Label(frame, text="Author").grid(row=1, column=0, padx=5)
-	t2 = tk.Entry(frame, state="disabled", textvariable=editor.author)
-	t2.grid(row=1, column=1, padx=5)
-	elems.append(t2)
-
-	tk.Label(frame, text="Version").grid(row=2, column=0, padx=5)
-	t3 = tk.Entry(frame, state="disabled", textvariable=editor.version)
-	t3.grid(row=2, column=1, padx=5)
-	elems.append(t3)
-
-	b1 = tk.Button(frame, text="Open Image...", state="disabled", command=editor.browse_image)
-	b1.grid(row=3, column=1, padx=(50, 5))
-	elems.append(b1)
-
-	# icon preview
-	im = Image.open(defaultPath)
-	tkimage = ImageTk.PhotoImage(im)
-
-	canvas = tk.Label(frame, image=tkimage, width=256, height=256)
-	canvas.grid(row=0, rowspan=8, column=2)
-	editor.imagebox = canvas
-
-	root.geometry("550x300")
-	root.resizable(0, 0)
-
-	root.mainloop()
-
-else:
-	nro = config["nro"]
-	del config["nro"]
-	if not nro:
-		print("[ERROR] No nro file specified, please provide one with --nro /path/file.nro")
-		exit(1)
-	print(f"-> Opening '{nro}'...")
-
-	opDone = False
-	editor = Editor()
-	editor.filename = nro
-	editor.loadBinaryData()
-
-	asset = editor.asset
-
-	print(f"-> Original Metadata:")
-	print(f"--> Title: {asset.name}")
-	print(f"--> Author: {asset.author}")
-	print(f"--> Version: {asset.version}")
-
-	if "icon" in config.keys():
-		if hasPIL:
-			editor.loadImageData(config[icon])
-			printf(f"-> Going to update the icon to {config[icon]}!")
-		else:
-			print("[ERROR] No PIL installed, cannot accept '--icon' argument")
-			exit(2)
-
-	# fill out missing keys based on existing data
-	for key in ["title", "author", "version"]:
-		if key in config:
-			# at least one of these three was given
-			opDone = True
-		else:
-			if key == "title":
-				config["title"] = asset.name
-			if key == "author":
-				config["author"] = asset.author
-			if key == "version":
-				config["version"] = asset.version
-	
-	if opDone:
-		print(f"-> Saving '{nro}'...")
-		editor.saveNRO(config)
-
-		# load it again so we can show the new values
-		e2 = Editor()
-		e2.filename = editor.filename
-		e2.loadBinaryData()
-		asset = e2.asset
-		print(f"-> NRO was updated!")
-		print(f"-> New Metadata:")
-		print(f"--> Title: {asset.name}")
-		print(f"--> Author: {asset.author}")
-		print(f"--> Version: {asset.version}")
-	else:
-		print("[WARNING] No changes were made")
+    def __init__(self, offset):
+        self.nacp = bytearray()
+        self.icon = bytearray()
+        self.romfs = bytearray()
+        self.offset = offset
+
+    def load(self, data):
+        offset = 0x4 + 0x4
+
+        icon_pos = int.from_bytes(data[offset : offset + 0x8], "little")
+        icon_size = int.from_bytes(data[offset + 0x8 : offset + 0x10], "little")
+        self.icon += data[icon_pos : icon_pos + icon_size]
+        offset += 0x10
+
+        nacp_pos = int.from_bytes(data[offset : offset + 0x8], "little")
+        nacp_size = int.from_bytes(data[offset + 0x8 : offset + 0x10], "little")
+        self.nacp += data[nacp_pos : nacp_pos + nacp_size]
+        offset += 0x10
+
+        romfs_pos = int.from_bytes(data[offset : offset + 0x8], "little")
+        romfs_size = int.from_bytes(data[offset + 0x8 : offset + 0x10], "little")
+        self.romfs += data[romfs_pos : romfs_pos + romfs_size]
+        offset += 0x10
+
+        self.name = self.nacp[0:0x200].decode("utf-8").strip("\x00")
+        self.author = self.nacp[0x200:0x300].decode("utf-8").strip("\x00")
+        self.version = self.nacp[0x3060:0x3070].decode("utf-8").strip("\x00")
+
+    def updateNACP(self, editor):
+        my_name = editor.name.text()
+        my_author = editor.author.text()
+        my_version = editor.version.text()
+
+        if len(self.nacp) < 0x4000:
+            self.nacp += bytearray([0] * (0x4000 - len(self.nacp)))
+
+        for x in range(15):
+            app_name = bytearray(my_name, encoding="utf-8")
+            app_name += bytearray([0] * (0x200 - len(app_name)))
+            self.nacp[x * 0x300 : (x * 0x300 + 0x200)] = app_name
+
+            author = bytearray(my_author, encoding="utf-8")
+            author += bytearray([0] * (0x100 - len(author)))
+            self.nacp[x * 0x300 + 0x200 : (x * 0x300 + 0x300)] = author
+
+        version = bytearray(my_version, encoding="utf-8")
+        version += bytearray([0] * (0x10 - len(version)))
+        self.nacp[0x3060 : 0x3060 + 0x10] = version
+
+    def getBytes(self):
+        ret = b"ASET"
+        ret += bytearray([0, 0, 0, 0])
+
+        offset = 0x38
+
+        icon_size = len(self.icon)
+
+        if icon_size > 0:
+            ret += (offset).to_bytes(8, "little")
+            ret += (icon_size).to_bytes(8, "little")
+        else:
+            ret += bytearray([0] * 0x10)
+        offset += icon_size
+
+        nacp_size = len(self.nacp)
+
+        if nacp_size > 0:
+            ret += (offset).to_bytes(8, "little")
+            ret += (nacp_size).to_bytes(8, "little")
+        else:
+            ret += bytearray([0] * 0x10)
+        offset += nacp_size
+
+        romfs_size = len(self.romfs)
+
+        if romfs_size > 0:
+            ret += (offset).to_bytes(8, "little")
+            ret += (romfs_size).to_bytes(8, "little")
+        else:
+            ret += bytearray([0] * 0x10)
+        offset += romfs_size
+
+        ret += self.icon
+        ret += self.nacp
+        ret += self.romfs
+
+        return ret
+
+
+class Editor(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QGridLayout()
+
+        self.filename = None
+        self.new_image_selected = False
+
+        self.name = QLineEdit("Name")
+        self.author = QLineEdit("Author")
+        self.version = QLineEdit("Version")
+
+        # Create a default QPixmap with the default image
+        self.default_pixmap = QPixmap("default.jpg")
+
+        # Initialize the icon_label with the default image
+        self.icon_label = QLabel(self)
+        self.icon_label.setPixmap(self.default_pixmap)
+        self.icon_label.setFixedSize(256, 256)
+
+        self.data = None
+        self.size = 0
+        self.asset = None
+
+        self.init_ui()
+
+        # Initialize the flag to track changes
+        self.has_changes = False
+
+    def init_ui(self):
+        layout = QGridLayout()
+
+        self.style_textboxes([self.name, self.author, self.version])
+
+        self.browse_image_button = QPushButton("Browse Image")
+        self.browse_image_button.setDisabled(True)
+        self.browse_image_button.clicked.connect(self.browse_image)
+        layout.addWidget(self.browse_image_button, 4, 0, 1, 2)
+
+        layout.addWidget(self.name, 0, 0, 1, 2)
+        layout.addWidget(self.author, 1, 0, 1, 2)
+        layout.addWidget(self.version, 2, 0, 1, 2)
+
+        load_button = QPushButton("Load")
+        load_button.clicked.connect(self.browse)
+        layout.addWidget(load_button, 3, 0)
+
+        self.save_button = QPushButton("Save")
+        self.save_button.clicked.connect(self.save_file)
+
+        # Disable the save button initially
+        self.save_button.setEnabled(False)
+
+        layout.addWidget(self.save_button, 3, 1)
+
+        layout.addWidget(self.icon_label, 5, 0, 1, 2)
+
+        self.setLayout(layout)
+
+        self.name.textChanged.connect(self.on_field_changed)
+        self.author.textChanged.connect(self.on_field_changed)
+        self.version.textChanged.connect(self.on_field_changed)
+
+        self.name.setEnabled(False)
+        self.author.setEnabled(False)
+        self.version.setEnabled(False)
+
+    def on_field_changed(self):
+        # Enable the save button when changes are made
+        self.has_changes = True
+        self.save_button.setEnabled(True)
+
+    def enable_browse_image_button(self):
+        self.browse_image_button.setEnabled(True)
+
+    def disable_browse_image_button(self):
+        self.browse_image_button.setDisabled(True)
+
+    def change_save_button_label_temporarily(self, label, duration=2000):
+        self.save_button.setText(label)
+        QTimer.singleShot(duration, self.restore_save_button_label)
+
+    def restore_save_button_label(self):
+        self.save_button.setText("Save")
+
+    def style_textboxes(self, textboxes):
+        for textbox in textboxes:
+            textbox.setStyleSheet("QLineEdit { border: 1px solid #ccc; padding: 3px; }")
+
+    def save_file(self):
+        if self.has_changes:
+            if self.new_image_selected:
+                pixmap = self.icon_label.pixmap()
+                byte_array = QByteArray()
+                buffer = QBuffer(byte_array)
+                buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+                pixmap.save(buffer, "JPG")
+                self.asset.icon = byte_array
+
+            self.asset.updateNACP(self)
+            asset_bytes = self.asset.getBytes()
+
+            if asset_bytes:
+                try:
+                    with open(self.filename, "wb") as file:
+                        file.write(self.data)
+                        file.write(asset_bytes)
+                        file.flush()
+
+                    self.change_save_button_label_temporarily(
+                        "Saved successfully!", 2000
+                    )
+                    self.has_changes = False
+                    self.save_button.setEnabled(False)
+                    return True
+                except Exception as e:
+                    print(f"Error while saving file: {e}")
+            else:
+                return False
+        else:
+            self.save_button.setEnabled(False)
+
+    def browse(self):
+        # Add the following line to reset the has_changes flag when loading a file
+        self.has_changes = False
+
+        self.filename, _ = QFileDialog.getOpenFileName(
+            self, "Select File", "", "NRO/OVL Files (*.nro;*.ovl)"
+        )
+
+        if self.filename:
+            if self.filename.endswith(".nro"):  # Check if it's an .NRO file
+                self.enable_browse_image_button()
+                # Rest of your code
+            else:
+                self.disable_browse_image_button()
+
+            with open(self.filename, "rb") as binary:
+                self.data = binary.read()
+                data = self.data
+
+                # Verify NRO0 format
+                if data[0x10:0x14] != b"NRO0":
+                    return False
+
+                # Get the filesize, so we can go to the assets section
+                self.nrosize = int.from_bytes(data[0x18:0x1C], byteorder="little")
+                size = self.nrosize
+
+                # Check for ASET data
+                self.asset = Asset(size)
+                asset = self.asset
+                if len(data) > size + 4 and data[size : size + 0x4] == b"ASET":
+                    # Load the asset data
+                    self.asset.load(bytearray(data[size:]))
+
+                    self.name.setText(asset.name)
+                    self.author.setText(asset.author)
+                    self.version.setText(asset.version)
+
+                    self.data = data[:size]
+
+                    # Load and display the image from the asset if available
+                    image_data = asset.icon
+                    if image_data:
+                        pixmap = QPixmap()
+                        pixmap.loadFromData(image_data)
+                        self.icon_label.setPixmap(pixmap)
+                    else:
+                        # Load the default image when no icon is available
+                        default_pixmap = QPixmap("default.jpg")
+                        self.icon_label.setPixmap(default_pixmap)
+
+                self.name.setEnabled(True)
+                self.author.setEnabled(True)
+                self.version.setEnabled(True)
+                self.save_button.setEnabled(False)
+
+    # Inside the Editor class, add the browse_image method
+    def browse_image(self):
+        image_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Image",
+            "",
+            "Image Files (*.png *.jpg *.jpeg *.gif *.bmp *.tga);;All Files (*)",
+        )
+
+        if image_path:
+            pixmap = QPixmap(image_path)
+            self.icon_label.setPixmap(pixmap)
+            self.icon_label.setFixedSize(256, 256)
+            self.new_image_selected = (
+                True  # Set a flag to indicate a new image is selected
+            )
+
+        # Set the flag to indicate a new image is selected
+        self.new_image_selected = True
+        self.on_field_changed()  # Trigger the change event
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        if getattr(sys, "frozen", False):
+            self.icon_path = os.path.join(sys._MEIPASS, "icon.ico")
+        else:
+            self.icon_path = "icon.ico"
+
+        self.setWindowIcon(QIcon(self.icon_path))
+
+        self.setWindowTitle("NOA-E")
+
+        self.editor = Editor()
+        self.setCentralWidget(self.editor)
+
+        # Adjust the width of the main window based on widget sizes
+        main_window_width = self.editor.sizeHint().width()
+        main_window_height = 430  # Set the desired height
+        self.setGeometry(100, 100, main_window_width, main_window_height)
+
+        # Set the fixed size of the main window
+        self.setFixedSize(self.size())
+
+
+def main():
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
