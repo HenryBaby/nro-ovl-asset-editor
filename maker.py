@@ -123,7 +123,7 @@ class Editor(QWidget):
         self.author = QLineEdit("Author")
         self.version = QLineEdit("Version")
 
-        self.default_pixmap = QPixmap("default.jpg")
+        self.default_pixmap = QPixmap(os.path.join(sys._MEIPASS, "default.jpg"))
 
         self.icon_label = QLabel(self)
         self.icon_label.setPixmap(self.default_pixmap)
@@ -274,7 +274,9 @@ class Editor(QWidget):
                         self.icon_label.setPixmap(pixmap)
                     else:
                         # Load the default image when no icon is available
-                        default_pixmap = QPixmap("default.jpg")
+                        default_pixmap = QPixmap(
+                            os.path.join(sys._MEIPASS, "default.jpg")
+                        )
                         self.icon_label.setPixmap(default_pixmap)
 
                 self.name.setEnabled(True)
