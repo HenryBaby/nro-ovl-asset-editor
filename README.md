@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> There are far superior ways of handling this now, with built-in functionality in for example the excellent Tesla replacement https://github.com/ppkantorski/Ultrahand-Overlay. Archiving this :)
+
 ## nro-ovl-asset-editor
 This project is a fork of [NRO Asset Editor](https://github.com/vgmoose/nro-asset-editor/), all credit goes toward them.
 
